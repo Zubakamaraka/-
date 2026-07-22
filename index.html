@@ -249,8 +249,31 @@ function scaleAmount(v, k){
 /* ================= Роутер ================= */
 let view={name:"home"};
 let navStack=[];
-function go(v, push=true){ if(push) navStack.push(view); view=v; render(); window.scrollTo(0,0); }
-function goBack(){ view=navStack.pop()||{name:"home"}; render(); window.scrollTo(0,0); }
+function go(v, push=true){
+  if(push){
+    navStack.push(view);
+    // Добавляем запись в историю браузера, чтобы системная стрелка "Назад" вела внутрь приложения
+    try{ history.pushState({depth:navStack.length}, ""); }catch(e){}
+  }
+  view=v; render(); window.scrollTo(0,0);
+}
+function goBack(){
+  // Если есть куда возвращаться внутри приложения — просим браузер шагнуть назад,
+  // это вызовет popstate, который и переключит экран. Так синхронно с системной кнопкой.
+  if(navStack.length){ history.back(); }
+}
+// Реальное переключение экрана назад (общая точка для кнопки в шапке и системной стрелки)
+function doBack(){
+  view=navStack.pop()||{name:"home"};
+  render(); window.scrollTo(0,0);
+}
+// Системная кнопка "Назад" (и стрелка браузера)
+window.addEventListener("popstate", ()=>{
+  if(_suppressPop){ return; }
+  if(navStack.length){ doBack(); }
+  else { view={name:"home"}; render(); }
+});
+let _suppressPop=false;
 
 /* ================= Экраны ================= */
 function render(){
@@ -622,10 +645,13 @@ function saveRecipe(){
   if(view.id){
     const r=recipes.find(x=>x.id===view.id);
     Object.assign(r, data); delete r._serv;
-    save(recipes); toast("Изменения сохранены"); navStack.pop(); go({name:"recipe", id:r.id}, false);
+    save(recipes); toast("Изменения сохранены");
+    // Заменяем экран "edit" на "recipe" в том же слоте истории (навигационно назад ведёт туда же, откуда пришли)
+    view={name:"recipe", id:r.id}; render(); window.scrollTo(0,0);
   }else{
     const r=Object.assign({id:"r"+Date.now()+Math.random().toString(16).slice(2), created:Date.now()}, data);
-    recipes.push(r); save(recipes); toast("Рецепт добавлен"); go({name:"recipe", id:r.id}, false);
+    recipes.push(r); save(recipes); toast("Рецепт добавлен");
+    view={name:"recipe", id:r.id}; render(); window.scrollTo(0,0);
   }
   editPhoto=null;
 }
@@ -674,7 +700,17 @@ $("#fontPlus").onclick=()=>{ prefs.scale=Math.min(1.8, +(prefs.scale+0.1).toFixe
 $("#fontMinus").onclick=()=>{ prefs.scale=Math.max(0.8, +(prefs.scale-0.1).toFixed(2)); savePrefs(); applyPrefs(); toast("Размер текста: "+Math.round(prefs.scale*100)+"%"); };
 $("#themeBtn").onclick=()=>{ prefs.theme=prefs.theme==="dark"?"light":"dark"; savePrefs(); applyPrefs(); };
 $("#settingsBtn").onclick=()=>go({name:"settings"});
-$("#homeBtn").onclick=()=>{ navStack=[]; go({name:"home"}, false); };
+$("#homeBtn").onclick=()=>{
+  // На главную: очищаем внутренний стек и лишние записи истории браузера
+  const steps=navStack.length;
+  navStack=[];
+  view={name:"home"}; render(); window.scrollTo(0,0);
+  if(steps>0){
+    _suppressPop=true;
+    try{ history.go(-steps); }catch(e){}
+    setTimeout(()=>{ _suppressPop=false; }, 400);
+  }
+};
 $("#fab").onclick=()=>go({name:"edit", cat:(view.name==="cat"? view.cat : null)});
 
 applyPrefs();
