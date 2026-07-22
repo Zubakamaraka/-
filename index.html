@@ -123,6 +123,12 @@ main{max-width:46rem; margin:0 auto; padding:1rem .9rem 6rem;}
 .share-btn .ic{font-size:1.7rem;}
 .sheet .close{width:100%; min-height:3rem; margin-top:1rem; border:2px solid var(--ink); border-radius:var(--radius); background:var(--card); font-weight:700; cursor:pointer;}
 .dupwarn{background:var(--accent-soft); border:2px solid var(--accent); border-radius:var(--radius); padding:.7rem .9rem; font-size:.95rem; margin-bottom:1rem;}
+.netdot{display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; font-weight:700; padding:.2rem .5rem; border-radius:999px; border:1.5px solid var(--line); white-space:nowrap;}
+.netdot .d{width:.6rem; height:.6rem; border-radius:50%;}
+.netdot.on .d{background:var(--ok);}
+.netdot.off .d{background:var(--muted);}
+.netdot.on{color:var(--ok);}
+.netdot.off{color:var(--muted);}
 .row-actions{display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem;}
 .abtn{min-height:3rem; padding:.4rem 1.1rem; border-radius:var(--radius); border:2px solid var(--ink); background:var(--card); font-weight:700; cursor:pointer;}
 .abtn.acc{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);}
@@ -176,6 +182,7 @@ main{max-width:46rem; margin:0 auto; padding:1rem .9rem 6rem;}
   </div>
   <button class="hbtn" id="themeBtn" aria-label="Переключить тему">🌙</button>
   <button class="hbtn" id="settingsBtn" aria-label="Резервная копия">💾</button>
+  <span class="netdot off" id="netDot" title="Состояние сети"><span class="d"></span><span id="netTxt">офлайн</span></span>
 </header>
 
 <main id="app" aria-live="polite"></main>
@@ -535,51 +542,52 @@ function shrinkImage(file, maxSide, quality){
   });
 }
 
-/* ---------- Поделиться рецептом ---------- */
-// Красиво оформленный ТЕКСТ рецепта (для чтения человеком)
-function shareTextReadable(r){
-  const lines=[`🍲 ${r.title}`, catName(r.cat)];
-  if(r.time) lines.push("⏱ "+r.time);
-  if(r.servings) lines.push("Порций: "+r.servings);
-  if(r.ing && r.ing.length){ lines.push("", "Ингредиенты:");
-    r.ing.forEach(i=>lines.push("• "+[i[1],i[2],i[0]].filter(Boolean).join(" "))); }
-  if(r.steps && r.steps.length){ lines.push("", "Приготовление:");
-    r.steps.forEach((s,idx)=>lines.push((idx+1)+". "+s)); }
-  if(r.notes) lines.push("", r.notes);
-  return lines.join("\n");
+/* ---------- Поделиться рецептом (текст с метками) ----------
+   Формат: перед значимыми строками стоят короткие метки в квадратных скобках.
+   [н] — название, [р] — раздел(код), [в] — время, [п] — порций,
+   [и] — ингредиент (три части через |), [ш] — шаг, [з] — заметка.
+   Метки не мешают чтению и позволяют парсеру точно разобрать рецепт. */
+function shareTextTagged(r){
+  const L=[];
+  L.push("🍲 [н] "+r.title);
+  L.push("[р] "+r.cat);
+  if(r.time) L.push("⏱ [в] "+r.time);
+  if(r.servings) L.push("[п] "+r.servings);
+  if(r.ing && r.ing.length){
+    L.push("", "Ингредиенты:");
+    r.ing.forEach(i=>{
+      const human=[i[1],i[2],i[0]].filter(Boolean).join(" ");
+      L.push("• "+human+"  [и] "+(i[0]||"")+"|"+(i[1]||"")+"|"+(i[2]||""));
+    });
+  }
+  if(r.steps && r.steps.length){
+    L.push("", "Приготовление:");
+    r.steps.forEach((s,idx)=>L.push((idx+1)+". [ш] "+s));
+  }
+  if(r.notes){
+    L.push("", "Примечания:");
+    String(r.notes).split("\n").forEach(line=>L.push("[з] "+line));
+  }
+  L.push("", "———", "📥 Это рецепт из приложения «Кулинарная книга». Чтобы добавить его себе: скопируйте всё сообщение, откройте приложение → 💾 → «Вставить рецепт из текста».");
+  return L.join("\n");
 }
-// Скрытый компактный блок с данными рецепта (чтобы приложение получателя могло его добавить)
-function recipeDataBlock(r){
-  const slim={t:r.title, c:r.cat, s:r.servings||0, tm:r.time||"",
-    i:r.ing||[], st:r.steps||[], n:r.notes||""};
-  const b64=btoa(unescape(encodeURIComponent(JSON.stringify(slim))));
-  return "\n\n———\n📥 Чтобы добавить этот рецепт в приложение «Кулинарная книга»: скопируйте всё это сообщение, откройте приложение → 💾 → «Вставить рецепт из текста».\n[РЕЦЕПТ]"+b64+"[/РЕЦЕПТ]";
-}
-// Полный текст для отправки: читаемая часть + скрытый блок данных
-function shareFull(r){ return shareTextReadable(r)+recipeDataBlock(r); }
 
 function openShare(r){
-  const full=shareFull(r);
-  const readable=shareTextReadable(r);
+  const txt=shareTextTagged(r);
   const bg=document.createElement("div"); bg.className="sheet-bg";
   const acts=[
     {ic:"📲", nm:"Отправить (меню телефона)", act:()=>{
-      if(navigator.share){ navigator.share({title:r.title, text:full}).catch(()=>{}); }
-      else { copyText(full); toast("Скопировано — вставьте в мессенджер"); }
+      if(navigator.share){ navigator.share({title:r.title, text:txt}).catch(()=>{}); }
+      else { copyText(txt); toast("Скопировано — вставьте в мессенджер"); }
       closeSheet();
     }},
-    {ic:"🟢", nm:"В WhatsApp", act:()=>{ openUrl("https://wa.me/?text="+encodeURIComponent(full)); }},
-    {ic:"✉️", nm:"На почту", act:()=>{ openUrl("mailto:?subject="+encodeURIComponent("Рецепт: "+r.title)+"&body="+encodeURIComponent(full)); }},
-    {ic:"📋", nm:"Копировать", act:()=>{ copyText(full); toast("Рецепт скопирован — вставьте куда угодно"); closeSheet(); }},
-    {ic:"👁", nm:"Только текст (без добавления)", act:()=>{
-      if(navigator.share){ navigator.share({title:r.title, text:readable}).catch(()=>{}); }
-      else { copyText(readable); toast("Текст скопирован"); }
-      closeSheet();
-    }},
+    {ic:"🟢", nm:"В WhatsApp", act:()=>{ openUrl("https://wa.me/?text="+encodeURIComponent(txt)); }},
+    {ic:"✉️", nm:"На почту", act:()=>{ openUrl("mailto:?subject="+encodeURIComponent("Рецепт: "+r.title)+"&body="+encodeURIComponent(txt)); }},
+    {ic:"📋", nm:"Копировать", act:()=>{ copyText(txt); toast("Рецепт скопирован — вставьте куда угодно"); closeSheet(); }},
   ];
   bg.innerHTML=`<div class="sheet" role="dialog" aria-label="Поделиться рецептом">
     <h3>📤 Поделиться рецептом</h3>
-    <div class="sub">«${esc(r.title)}»<br>Получателю придёт текст рецепта. Если у него тоже есть это приложение — он сможет добавить рецепт к себе одной кнопкой (инструкция будет в сообщении).</div>
+    <div class="sub">«${esc(r.title)}»<br>Получателю придёт обычный текст рецепта — его можно прочитать. А если у него есть это приложение, он добавит рецепт к себе: скопирует сообщение и нажмёт 💾 → «Вставить рецепт из текста».</div>
     <div class="share-grid">${acts.map((m,idx)=>`<button class="share-btn" data-i="${idx}"><span class="ic">${m.ic}</span>${m.nm}</button>`).join("")}</div>
     <button class="close">Отмена</button>
   </div>`;
@@ -633,23 +641,39 @@ function saveRecipe(){
 }
 
 /* ================= Импорт / экспорт ================= */
-/* ---------- Приём рецепта из текста ---------- */
-// Извлекает рецепт из строки, содержащей блок [РЕЦЕПТ]...[/РЕЦЕПТ]
+/* ---------- Приём рецепта из текста (разбор по меткам) ----------
+   Парсер идёт по строкам и достаёт данные из меток [н][р][в][п][и][ш][з].
+   Метка может стоять в любом месте строки — берём всё, что после неё. */
+function afterTag(line, tag){
+  const i=line.indexOf(tag);
+  return i<0 ? null : line.slice(i+tag.length).trim();
+}
 function parseRecipeFromText(text){
-  const m=text.match(/\[РЕЦЕПТ\]([\s\S]*?)\[\/РЕЦЕПТ\]/);
-  if(!m) return null;
-  try{
-    const json=decodeURIComponent(escape(atob(m[1].trim())));
-    const s=JSON.parse(json);
-    if(!s || !s.t) return null;
-    return { title:String(s.t).trim(), cat:s.c||"raznoe", servings:s.s||0, time:s.tm||"",
-      ing:Array.isArray(s.i)?s.i:[], steps:Array.isArray(s.st)?s.st:[], notes:s.n||"" };
-  }catch(e){ return null; }
+  if(!text || text.indexOf("[н]")<0) return null;
+  const known=["tips","zakuski","supy","myaso","ryba","ovoshi","krupy","frukty","zagotovki","raznoe"];
+  const rec={ title:"", cat:"raznoe", servings:0, time:"", ing:[], steps:[], notes:[] };
+  text.split(/\r?\n/).forEach(line=>{
+    let v;
+    if((v=afterTag(line,"[н]"))!==null){ if(v) rec.title=v; }
+    else if((v=afterTag(line,"[р]"))!==null){ v=v.trim(); if(known.includes(v)) rec.cat=v; }
+    else if((v=afterTag(line,"[в]"))!==null){ rec.time=v; }
+    else if((v=afterTag(line,"[п]"))!==null){ const n=parseInt(v); if(!isNaN(n)) rec.servings=n; }
+    else if((v=afterTag(line,"[и]"))!==null){
+      const p=v.split("|");
+      const name=(p[0]||"").trim(), qty=(p[1]||"").trim(), unit=(p[2]||"").trim();
+      if(name||qty||unit) rec.ing.push([name,qty,unit]);
+    }
+    else if((v=afterTag(line,"[ш]"))!==null){ if(v) rec.steps.push(v); }
+    else if((v=afterTag(line,"[з]"))!==null){ rec.notes.push(v); }
+  });
+  if(!rec.title) return null;
+  rec.notes=rec.notes.join("\n").trim();
+  return rec;
 }
 function addPastedRecipe(text){
   const rec=parseRecipeFromText(text);
   if(!rec){
-    alert("В тексте не найден рецепт. Убедитесь, что скопировали ВСЁ сообщение целиком — вместе со строкой, которая начинается на [РЕЦЕПТ].");
+    alert("В тексте не найден рецепт. Убедитесь, что скопировали ВСЁ присланное сообщение целиком (вместе с пометками в квадратных скобках).");
     return;
   }
   const dup=recipes.find(x=>x.title.trim().toLowerCase()===rec.title.trim().toLowerCase());
@@ -664,7 +688,7 @@ function pasteRecipeFromText(){
   // Пытаемся прочитать буфер обмена автоматически
   if(navigator.clipboard && navigator.clipboard.readText){
     navigator.clipboard.readText()
-      .then(t=>{ if(t && t.includes("[РЕЦЕПТ]")) addPastedRecipe(t); else askPasteManually(); })
+      .then(t=>{ if(t && t.includes("[н]")) addPastedRecipe(t); else askPasteManually(); })
       .catch(()=>askPasteManually());
   } else askPasteManually();
 }
@@ -760,8 +784,22 @@ $("#homeBtn").onclick=()=>{
 };
 $("#fab").onclick=()=>go({name:"edit", cat:(view.name==="cat"? view.cat : null)});
 
-applyPrefs();
+/* ---------- Индикатор сети ---------- */
+function updateNetDot(){
+  const on=navigator.onLine;
+  const dot=$("#netDot"), txt=$("#netTxt");
+  if(!dot) return;
+  dot.className="netdot "+(on?"on":"off");
+  txt.textContent = on? "онлайн" : "офлайн";
+  dot.title = on? "Есть интернет"
+                : "Нет интернета — книга работает как обычно";
+}
+window.addEventListener("online", updateNetDot);
+window.addEventListener("offline", updateNetDot);
 
+
+applyPrefs();
+updateNetDot();
 render();
 
 /* Офлайн-режим + автообновление (работает на сайте, не при открытии файла напрямую) */
