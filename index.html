@@ -431,10 +431,11 @@ function settingsHTML(){
   <section class="panel"><h2>Восстановить из копии</h2>
     <p style="margin-bottom:.7rem">Загрузите ранее сохранённый файл. Рецепты из файла добавятся к текущим (без дублей).</p>
     <button class="abtn" id="impBtn">⬆️ Загрузить файл копии</button></section>
+  <section class="panel"><h2>Вставить рецепт из текста</h2>
+    <p style="margin-bottom:.7rem">Если вам прислали рецепт из этого приложения (текстом в мессенджере) — скопируйте всё сообщение и нажмите кнопку. Рецепт добавится в вашу книгу.</p>
+    <button class="abtn acc" id="pasteBtn">📥 Вставить рецепт из текста</button></section>
   <section class="panel"><h2>Как поделиться одним рецептом</h2>
-    <p>Откройте рецепт и нажмите «📤 Поделиться». Есть два способа:<br>
-    • <b>Как файл</b> — получателю придёт маленький файл рецепта; он открывает его в этом приложении (💾 → «Загрузить файл копии») и рецепт добавляется к нему в книгу. Если такой рецепт у него уже есть — приложение предупредит.<br>
-    • <b>Как текст</b> — придёт оформленный текст рецепта, чтобы просто прочитать и приготовить (в Telegram, WhatsApp, на почту или через меню телефона).</p></section>
+    <p>Откройте рецепт и нажмите «📤 Поделиться» → «Отправить (меню телефона)». Выберите мессенджер — получателю придёт текст рецепта, который можно прочитать и приготовить. Если у получателя тоже установлено это приложение, он сможет добавить рецепт к себе: скопирует сообщение и нажмёт 💾 → «Вставить рецепт из текста» (инструкция уже вложена в само сообщение).</p></section>
   <section class="panel"><h2>О приложении</h2>
     <p>Всего рецептов: <b>${recipes.length}</b>. Приложение работает без интернета, все данные хранятся только на этом устройстве.</p></section>`;
 }
@@ -493,6 +494,7 @@ function bind(){
 
   b("#expBtn", exportData);
   b("#impBtn", ()=>$("#importFile").click());
+  b("#pasteBtn", pasteRecipeFromText);
 }
 function bindDel(){
   document.querySelectorAll(".ing-row .del").forEach(btn=>{
@@ -534,8 +536,8 @@ function shrinkImage(file, maxSide, quality){
 }
 
 /* ---------- Поделиться рецептом ---------- */
-// Красиво оформленный ТЕКСТ рецепта (для чтения в мессенджере)
-function shareText(r){
+// Красиво оформленный ТЕКСТ рецепта (для чтения человеком)
+function shareTextReadable(r){
   const lines=[`🍲 ${r.title}`, catName(r.cat)];
   if(r.time) lines.push("⏱ "+r.time);
   if(r.servings) lines.push("Порций: "+r.servings);
@@ -546,49 +548,38 @@ function shareText(r){
   if(r.notes) lines.push("", r.notes);
   return lines.join("\n");
 }
-// Компактный ФАЙЛ одного рецепта (для добавления в приложение получателя)
-function shareRecipeFile(r){
-  const one={app:"cookbook", v:1, recipes:[{
-    id:r.id, cat:r.cat, title:r.title, servings:r.servings||0, time:r.time||"",
-    ing:r.ing||[], steps:r.steps||[], notes:r.notes||"", photo:r.photo||"", created:r.created||Date.now()
-  }]};
-  const blob=new Blob([JSON.stringify(one)], {type:"application/json"});
-  const fname="Рецепт_"+r.title.replace(/[^\wа-яА-ЯёЁ]+/g,"_").slice(0,40)+".json";
-  const file = (window.File) ? new File([blob], fname, {type:"application/json"}) : null;
+// Скрытый компактный блок с данными рецепта (чтобы приложение получателя могло его добавить)
+function recipeDataBlock(r){
+  const slim={t:r.title, c:r.cat, s:r.servings||0, tm:r.time||"",
+    i:r.ing||[], st:r.steps||[], n:r.notes||""};
+  const b64=btoa(unescape(encodeURIComponent(JSON.stringify(slim))));
+  return "\n\n———\n📥 Чтобы добавить этот рецепт в приложение «Кулинарная книга»: скопируйте всё это сообщение, откройте приложение → 💾 → «Вставить рецепт из текста».\n[РЕЦЕПТ]"+b64+"[/РЕЦЕПТ]";
+}
+// Полный текст для отправки: читаемая часть + скрытый блок данных
+function shareFull(r){ return shareTextReadable(r)+recipeDataBlock(r); }
 
-  // Если телефон умеет делиться файлами через системное меню — лучший путь
-  if(file && navigator.canShare && navigator.canShare({files:[file]})){
-    navigator.share({files:[file], title:r.title, text:"Рецепт: "+r.title})
-      .catch(()=>downloadBlob(blob, fname));
-  } else {
-    downloadBlob(blob, fname);
-    toast("Файл рецепта сохранён — отправьте его в мессенджере");
-  }
-  closeSheet();
-}
-function downloadBlob(blob, fname){
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob); a.download=fname; a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
-}
 function openShare(r){
-  const txt=shareText(r);
+  const full=shareFull(r);
+  const readable=shareTextReadable(r);
   const bg=document.createElement("div"); bg.className="sheet-bg";
   const acts=[
-    {ic:"📄", nm:"Как файл (добавить в приложение)", act:()=>shareRecipeFile(r)},
-    {ic:"📲", nm:"Как текст (меню телефона)", act:()=>{
-      if(navigator.share){ navigator.share({title:r.title, text:txt}).catch(()=>{}); }
-      else { copyText(txt); toast("Скопировано — вставьте в мессенджер"); }
+    {ic:"📲", nm:"Отправить (меню телефона)", act:()=>{
+      if(navigator.share){ navigator.share({title:r.title, text:full}).catch(()=>{}); }
+      else { copyText(full); toast("Скопировано — вставьте в мессенджер"); }
       closeSheet();
     }},
-    {ic:"💬", nm:"Текст в Telegram", act:()=>{ openUrl("https://t.me/share/url?url="+encodeURIComponent(" ")+"&text="+encodeURIComponent(txt)); }},
-    {ic:"🟢", nm:"Текст в WhatsApp", act:()=>{ openUrl("https://wa.me/?text="+encodeURIComponent(txt)); }},
-    {ic:"✉️", nm:"Текст на почту", act:()=>{ openUrl("mailto:?subject="+encodeURIComponent("Рецепт: "+r.title)+"&body="+encodeURIComponent(txt)); }},
-    {ic:"📋", nm:"Копировать текст", act:()=>{ copyText(txt); toast("Рецепт скопирован"); closeSheet(); }},
+    {ic:"🟢", nm:"В WhatsApp", act:()=>{ openUrl("https://wa.me/?text="+encodeURIComponent(full)); }},
+    {ic:"✉️", nm:"На почту", act:()=>{ openUrl("mailto:?subject="+encodeURIComponent("Рецепт: "+r.title)+"&body="+encodeURIComponent(full)); }},
+    {ic:"📋", nm:"Копировать", act:()=>{ copyText(full); toast("Рецепт скопирован — вставьте куда угодно"); closeSheet(); }},
+    {ic:"👁", nm:"Только текст (без добавления)", act:()=>{
+      if(navigator.share){ navigator.share({title:r.title, text:readable}).catch(()=>{}); }
+      else { copyText(readable); toast("Текст скопирован"); }
+      closeSheet();
+    }},
   ];
   bg.innerHTML=`<div class="sheet" role="dialog" aria-label="Поделиться рецептом">
     <h3>📤 Поделиться рецептом</h3>
-    <div class="sub">«${esc(r.title)}»<br><b>Файл</b> — чтобы рецепт добавился в приложение получателя. <b>Текст</b> — чтобы просто прочитать и приготовить.</div>
+    <div class="sub">«${esc(r.title)}»<br>Получателю придёт текст рецепта. Если у него тоже есть это приложение — он сможет добавить рецепт к себе одной кнопкой (инструкция будет в сообщении).</div>
     <div class="share-grid">${acts.map((m,idx)=>`<button class="share-btn" data-i="${idx}"><span class="ic">${m.ic}</span>${m.nm}</button>`).join("")}</div>
     <button class="close">Отмена</button>
   </div>`;
@@ -642,6 +633,59 @@ function saveRecipe(){
 }
 
 /* ================= Импорт / экспорт ================= */
+/* ---------- Приём рецепта из текста ---------- */
+// Извлекает рецепт из строки, содержащей блок [РЕЦЕПТ]...[/РЕЦЕПТ]
+function parseRecipeFromText(text){
+  const m=text.match(/\[РЕЦЕПТ\]([\s\S]*?)\[\/РЕЦЕПТ\]/);
+  if(!m) return null;
+  try{
+    const json=decodeURIComponent(escape(atob(m[1].trim())));
+    const s=JSON.parse(json);
+    if(!s || !s.t) return null;
+    return { title:String(s.t).trim(), cat:s.c||"raznoe", servings:s.s||0, time:s.tm||"",
+      ing:Array.isArray(s.i)?s.i:[], steps:Array.isArray(s.st)?s.st:[], notes:s.n||"" };
+  }catch(e){ return null; }
+}
+function addPastedRecipe(text){
+  const rec=parseRecipeFromText(text);
+  if(!rec){
+    alert("В тексте не найден рецепт. Убедитесь, что скопировали ВСЁ сообщение целиком — вместе со строкой, которая начинается на [РЕЦЕПТ].");
+    return;
+  }
+  const dup=recipes.find(x=>x.title.trim().toLowerCase()===rec.title.trim().toLowerCase());
+  if(dup && !confirm(`Рецепт «${rec.title}» у вас уже есть. Добавить ещё один (получится два)?\n\nОК — добавить. Отмена — не добавлять.`)){
+    return;
+  }
+  const nr=Object.assign({id:"r"+Date.now()+Math.random().toString(16).slice(2), created:Date.now(), photo:""}, rec);
+  recipes.push(nr); save(recipes); toast("Рецепт добавлен: "+rec.title);
+  go({name:"recipe", id:nr.id});
+}
+function pasteRecipeFromText(){
+  // Пытаемся прочитать буфер обмена автоматически
+  if(navigator.clipboard && navigator.clipboard.readText){
+    navigator.clipboard.readText()
+      .then(t=>{ if(t && t.includes("[РЕЦЕПТ]")) addPastedRecipe(t); else askPasteManually(); })
+      .catch(()=>askPasteManually());
+  } else askPasteManually();
+}
+// Запасной путь: показываем поле, куда пользователь вставляет текст руками
+function askPasteManually(){
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet" role="dialog" aria-label="Вставить рецепт">
+    <h3>📥 Вставить рецепт</h3>
+    <div class="sub">Вставьте сюда присланное сообщение целиком (долгое нажатие в поле → «Вставить»), затем нажмите «Добавить».</div>
+    <textarea id="pasteArea" style="width:100%; min-height:8rem; padding:.6rem; border:2px solid var(--ink); border-radius:var(--radius); background:var(--card); font-size:1rem" placeholder="Вставьте текст рецепта…"></textarea>
+    <button class="abtn acc" id="pasteGo" style="width:100%; min-height:3rem; margin-top:.7rem">Добавить рецепт</button>
+    <button class="close">Отмена</button>
+  </div>`;
+  bg.onclick=e=>{ if(e.target===bg) closeSheet(); };
+  bg.querySelector(".close").onclick=closeSheet;
+  bg.querySelector("#pasteGo").onclick=()=>{ const t=bg.querySelector("#pasteArea").value; closeSheet(); addPastedRecipe(t); };
+  document.body.appendChild(bg);
+  window._sheet=bg;
+  setTimeout(()=>bg.querySelector("#pasteArea").focus(), 100);
+}
+
 function exportData(){
   const blob=new Blob([JSON.stringify({app:"cookbook", v:1, recipes}, null, 2)], {type:"application/json"});
   const a=document.createElement("a");
