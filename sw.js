@@ -1,6 +1,10 @@
-/* Офлайн-режим кулинарной книги */
-const CACHE = "cookbook-v3";
-const FILES = [
+/* Офлайн-режим кулинарной книги.
+   Стратегия обновления:
+   - HTML/JS (сама программа) — "сеть вперёд": при наличии интернета берём свежую версию,
+     без сети — из кэша. Так приложение обновляется САМО, без чистки кэша вручную.
+   - Иконки/манифест — "кэш вперёд": не меняются, грузятся мгновенно и офлайн. */
+const CACHE = "cookbook-v4";
+const CORE = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
@@ -11,7 +15,7 @@ const FILES = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
@@ -22,8 +26,29 @@ self.addEventListener("activate", e => {
   );
 });
 
+function isAppShell(req) {
+  const url = new URL(req.url);
+  return req.mode === "navigate" ||
+         url.pathname.endsWith("/") ||
+         url.pathname.endsWith("index.html");
+}
+
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+
+  if (isAppShell(e.request)) {
+    e.respondWith(
+      fetch(e.request)
+        .then(resp => {
+          const copy = resp.clone();
+          caches.open(CACHE).then(c => c.put("./index.html", copy));
+          return resp;
+        })
+        .catch(() => caches.match("./index.html").then(r => r || caches.match("./")))
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(cached =>
       cached ||
@@ -31,7 +56,7 @@ self.addEventListener("fetch", e => {
         const copy = resp.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));
         return resp;
-      }).catch(() => caches.match("./index.html"))
+      }).catch(() => cached)
     )
   );
 });

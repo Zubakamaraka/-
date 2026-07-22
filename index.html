@@ -374,22 +374,11 @@ function recipeHTML(id){
 }
 
 function editHTML(id, presetCat){
-  // r — редактируемый существующий рецепт; inc — входящий по ссылке
-  const inc = (!id && view.incoming) ? incomingRecipe : null;
-  const r = id? recipes.find(x=>x.id===id) : inc;
+  const r = id? recipes.find(x=>x.id===id) : null;
   const cat = r? r.cat : (presetCat||"raznoe");
   const ing = (r && r.ing && r.ing.length)? r.ing : [["","",""]];
-  // Проверка на дубль по названию (для входящего рецепта)
-  let dupHtml="";
-  if(inc){
-    const dup=recipes.find(x=>x.title.trim().toLowerCase()===inc.title.trim().toLowerCase());
-    dupHtml = dup
-      ? `<div class="dupwarn">⚠️ Рецепт с названием «${esc(inc.title)}» у вас уже есть. Если сохранить сейчас — добавится второй. Можно изменить название ниже, поправить рецепт, или нажать «Отмена», чтобы ничего не добавлять.</div>`
-      : `<div class="dupwarn">📩 Вам прислали рецепт «${esc(inc.title)}». Проверьте его и нажмите «Сохранить», чтобы добавить в книгу.</div>`;
-  }
   return `<div class="crumbs"><button class="back" id="backBtn">← Отмена</button></div>
-  <h1 style="font-size:1.5rem; margin-bottom:.9rem">${r? (id?"Редактирование":"Новый рецепт"):"Новый рецепт"}</h1>
-  ${dupHtml}
+  <h1 style="font-size:1.5rem; margin-bottom:.9rem">${r? "Редактирование":"Новый рецепт"}</h1>
   <div class="field"><label for="fTitle">Название *</label>
     <input id="fTitle" value="${esc(r?r.title:"")}" placeholder="Например: Пирог с яблоками"></div>
   <div class="field"><label for="fCat">Раздел</label>
@@ -443,7 +432,9 @@ function settingsHTML(){
     <p style="margin-bottom:.7rem">Загрузите ранее сохранённый файл. Рецепты из файла добавятся к текущим (без дублей).</p>
     <button class="abtn" id="impBtn">⬆️ Загрузить файл копии</button></section>
   <section class="panel"><h2>Как поделиться одним рецептом</h2>
-    <p>Откройте любой рецепт и нажмите «📤 Поделиться» — выберите мессенджер (Telegram, WhatsApp, ВКонтакте, почта и другие через меню телефона). Получателю придёт текст рецепта и ссылка: нажав на неё, он откроет это же приложение с уже заполненным рецептом и сможет сохранить его себе. Если рецепт с таким названием у него уже есть — приложение предупредит.</p></section>
+    <p>Откройте рецепт и нажмите «📤 Поделиться». Есть два способа:<br>
+    • <b>Как файл</b> — получателю придёт маленький файл рецепта; он открывает его в этом приложении (💾 → «Загрузить файл копии») и рецепт добавляется к нему в книгу. Если такой рецепт у него уже есть — приложение предупредит.<br>
+    • <b>Как текст</b> — придёт оформленный текст рецепта, чтобы просто прочитать и приготовить (в Telegram, WhatsApp, на почту или через меню телефона).</p></section>
   <section class="panel"><h2>О приложении</h2>
     <p>Всего рецептов: <b>${recipes.length}</b>. Приложение работает без интернета, все данные хранятся только на этом устройстве.</p></section>`;
 }
@@ -543,19 +534,11 @@ function shrinkImage(file, maxSide, quality){
 }
 
 /* ---------- Поделиться рецептом ---------- */
-// Кодирует рецепт (без фото — оно тяжёлое) в компактную ссылку
-function recipeToLink(r){
-  const slim={t:r.title, c:r.cat, s:r.servings||0, tm:r.time||"",
-    i:r.ing||[], st:r.steps||[], n:r.notes||""};
-  const json=JSON.stringify(slim);
-  // UTF-8 → base64, безопасно для кириллицы
-  const b64=btoa(unescape(encodeURIComponent(json)));
-  const base=location.origin+location.pathname;
-  return base+"#recipe="+encodeURIComponent(b64);
-}
+// Красиво оформленный ТЕКСТ рецепта (для чтения в мессенджере)
 function shareText(r){
   const lines=[`🍲 ${r.title}`, catName(r.cat)];
   if(r.time) lines.push("⏱ "+r.time);
+  if(r.servings) lines.push("Порций: "+r.servings);
   if(r.ing && r.ing.length){ lines.push("", "Ингредиенты:");
     r.ing.forEach(i=>lines.push("• "+[i[1],i[2],i[0]].filter(Boolean).join(" "))); }
   if(r.steps && r.steps.length){ lines.push("", "Приготовление:");
@@ -563,34 +546,55 @@ function shareText(r){
   if(r.notes) lines.push("", r.notes);
   return lines.join("\n");
 }
-function openShare(r){
-  const link=recipeToLink(r);
-  const txt=shareText(r);
-  const full=txt+"\n\n👉 Открыть в приложении:\n"+link;
+// Компактный ФАЙЛ одного рецепта (для добавления в приложение получателя)
+function shareRecipeFile(r){
+  const one={app:"cookbook", v:1, recipes:[{
+    id:r.id, cat:r.cat, title:r.title, servings:r.servings||0, time:r.time||"",
+    ing:r.ing||[], steps:r.steps||[], notes:r.notes||"", photo:r.photo||"", created:r.created||Date.now()
+  }]};
+  const blob=new Blob([JSON.stringify(one)], {type:"application/json"});
+  const fname="Рецепт_"+r.title.replace(/[^\wа-яА-ЯёЁ]+/g,"_").slice(0,40)+".json";
+  const file = (window.File) ? new File([blob], fname, {type:"application/json"}) : null;
 
-  // Если телефон умеет системное меню "Поделиться" — используем его (там все мессенджеры)
+  // Если телефон умеет делиться файлами через системное меню — лучший путь
+  if(file && navigator.canShare && navigator.canShare({files:[file]})){
+    navigator.share({files:[file], title:r.title, text:"Рецепт: "+r.title})
+      .catch(()=>downloadBlob(blob, fname));
+  } else {
+    downloadBlob(blob, fname);
+    toast("Файл рецепта сохранён — отправьте его в мессенджере");
+  }
+  closeSheet();
+}
+function downloadBlob(blob, fname){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=fname; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+function openShare(r){
+  const txt=shareText(r);
   const bg=document.createElement("div"); bg.className="sheet-bg";
-  const msgs=[
-    {ic:"📲", nm:"Меню телефона", act:()=>{
-      if(navigator.share){ navigator.share({title:r.title, text:full}).catch(()=>{}); }
-      else { copyText(full); toast("Скопировано — вставьте в мессенджер"); }
+  const acts=[
+    {ic:"📄", nm:"Как файл (добавить в приложение)", act:()=>shareRecipeFile(r)},
+    {ic:"📲", nm:"Как текст (меню телефона)", act:()=>{
+      if(navigator.share){ navigator.share({title:r.title, text:txt}).catch(()=>{}); }
+      else { copyText(txt); toast("Скопировано — вставьте в мессенджер"); }
       closeSheet();
     }},
-    {ic:"💬", nm:"Telegram", act:()=>{ openUrl("https://t.me/share/url?url="+encodeURIComponent(link)+"&text="+encodeURIComponent(txt)); }},
-    {ic:"🟢", nm:"WhatsApp", act:()=>{ openUrl("https://wa.me/?text="+encodeURIComponent(full)); }},
-    {ic:"🔵", nm:"ВКонтакте", act:()=>{ openUrl("https://vk.com/share.php?url="+encodeURIComponent(link)+"&title="+encodeURIComponent(r.title)+"&comment="+encodeURIComponent(txt)); }},
-    {ic:"✉️", nm:"Почта", act:()=>{ openUrl("mailto:?subject="+encodeURIComponent("Рецепт: "+r.title)+"&body="+encodeURIComponent(full)); }},
-    {ic:"📋", nm:"Копировать", act:()=>{ copyText(full); toast("Рецепт скопирован"); closeSheet(); }},
+    {ic:"💬", nm:"Текст в Telegram", act:()=>{ openUrl("https://t.me/share/url?url="+encodeURIComponent(" ")+"&text="+encodeURIComponent(txt)); }},
+    {ic:"🟢", nm:"Текст в WhatsApp", act:()=>{ openUrl("https://wa.me/?text="+encodeURIComponent(txt)); }},
+    {ic:"✉️", nm:"Текст на почту", act:()=>{ openUrl("mailto:?subject="+encodeURIComponent("Рецепт: "+r.title)+"&body="+encodeURIComponent(txt)); }},
+    {ic:"📋", nm:"Копировать текст", act:()=>{ copyText(txt); toast("Рецепт скопирован"); closeSheet(); }},
   ];
   bg.innerHTML=`<div class="sheet" role="dialog" aria-label="Поделиться рецептом">
     <h3>📤 Поделиться рецептом</h3>
-    <div class="sub">«${esc(r.title)}» — выберите, куда отправить</div>
-    <div class="share-grid">${msgs.map((m,idx)=>`<button class="share-btn" data-i="${idx}"><span class="ic">${m.ic}</span>${m.nm}</button>`).join("")}</div>
+    <div class="sub">«${esc(r.title)}»<br><b>Файл</b> — чтобы рецепт добавился в приложение получателя. <b>Текст</b> — чтобы просто прочитать и приготовить.</div>
+    <div class="share-grid">${acts.map((m,idx)=>`<button class="share-btn" data-i="${idx}"><span class="ic">${m.ic}</span>${m.nm}</button>`).join("")}</div>
     <button class="close">Отмена</button>
   </div>`;
   bg.onclick=e=>{ if(e.target===bg) closeSheet(); };
   bg.querySelector(".close").onclick=closeSheet;
-  bg.querySelectorAll(".share-btn").forEach(b=>b.onclick=()=>msgs[+b.dataset.i].act());
+  bg.querySelectorAll(".share-btn").forEach(b=>b.onclick=()=>acts[+b.dataset.i].act());
   document.body.appendChild(bg);
   window._sheet=bg;
 }
@@ -606,25 +610,6 @@ function fallbackCopy(t){
   try{ document.execCommand("copy"); }catch(e){}
   ta.remove();
 }
-
-/* ---------- Приём рецепта по ссылке ---------- */
-// Если приложение открыли по ссылке вида ...#recipe=... — показываем предзаполненный редактор
-function checkIncomingRecipe(){
-  const m=location.hash.match(/recipe=([^&]+)/);
-  if(!m) return false;
-  try{
-    const json=decodeURIComponent(escape(atob(decodeURIComponent(m[1]))));
-    const s=JSON.parse(json);
-    incomingRecipe={
-      title:String(s.t||"").trim(), cat:s.c||"raznoe", servings:s.s||0,
-      time:s.tm||"", ing:Array.isArray(s.i)?s.i:[], steps:Array.isArray(s.st)?s.st:[], notes:s.n||""
-    };
-    // Чистим хеш, чтобы при обновлении не открывалось снова
-    history.replaceState(null,"",location.pathname);
-    return true;
-  }catch(e){ return false; }
-}
-let incomingRecipe=null;
 
 function saveRecipe(){
   const title=$("#fTitle").value.trim();
@@ -674,17 +659,35 @@ $("#importFile").addEventListener("change", e=>{
       const data=JSON.parse(fr.result);
       const list=Array.isArray(data)? data : data.recipes;
       if(!Array.isArray(list)) throw 0;
-      let added=0;
+      let added=0, lastId=null;
       list.forEach(r=>{
         if(r && r.title && !recipes.some(x=>x.id===r.id)){
-          recipes.push({id:r.id||("r"+Date.now()+Math.random().toString(16).slice(2)), cat:r.cat||"raznoe",
+          const nr={id:r.id||("r"+Date.now()+Math.random().toString(16).slice(2)), cat:r.cat||"raznoe",
             title:String(r.title), servings:r.servings||0, time:r.time||"",
             ing:Array.isArray(r.ing)?r.ing:[], steps:Array.isArray(r.steps)?r.steps:[],
-            notes:r.notes||"", photo:r.photo||"", created:r.created||Date.now()});
-          added++;
+            notes:r.notes||"", photo:r.photo||"", created:r.created||Date.now()};
+          recipes.push(nr); added++; lastId=nr.id;
         }
       });
-      save(recipes); toast(added? `Добавлено рецептов: ${added}` : "Новых рецептов в файле нет"); render();
+      save(recipes);
+      // Особый случай: прислали ОДИН рецепт
+      if(list.length===1){
+        const one=list[0];
+        const dup=recipes.find(x=>x.id!==one.id && x.title.trim().toLowerCase()===String(one.title||"").trim().toLowerCase());
+        if(added){
+          toast("Рецепт добавлен: "+one.title);
+          if(dup) setTimeout(()=>alert("Обратите внимание: рецепт с названием «"+one.title+"» у вас уже был. Теперь их два — лишний можно удалить."), 400);
+          render(); if(lastId) go({name:"recipe", id:lastId});
+          return;
+        } else {
+          // id совпал — рецепт уже есть; предложим открыть существующий
+          const ex=recipes.find(x=>x.id===one.id);
+          toast("Этот рецепт уже есть в книге");
+          render(); if(ex) go({name:"recipe", id:ex.id});
+          return;
+        }
+      }
+      toast(added? `Добавлено рецептов: ${added}` : "Новых рецептов в файле нет"); render();
     }catch(err){ toast("Не удалось прочитать файл. Проверьте, что это копия из этого приложения."); }
   };
   fr.readAsText(f); e.target.value="";
@@ -715,15 +718,22 @@ $("#fab").onclick=()=>go({name:"edit", cat:(view.name==="cat"? view.cat : null)}
 
 applyPrefs();
 
-/* Если открыли по ссылке с рецептом — сразу показываем предзаполненный редактор */
-if(checkIncomingRecipe()){
-  view={name:"edit", incoming:true};
-}
 render();
 
-/* Офлайн-режим (работает только на сайте, не при открытии файла напрямую) */
+/* Офлайн-режим + автообновление (работает на сайте, не при открытии файла напрямую) */
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-  navigator.serviceWorker.register("sw.js").catch(()=>{});
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    // Периодически проверяем обновление приложения
+    reg.update();
+    setInterval(() => reg.update(), 60 * 60 * 1000); // раз в час
+    // Когда пришла новая версия и она активировалась — тихо обновляем страницу
+    let refreshed = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshed) return;
+      refreshed = true;
+      location.reload();
+    });
+  }).catch(()=>{});
 }
 </script>
 </body>
