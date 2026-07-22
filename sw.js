@@ -1,5 +1,5 @@
 /* Офлайн-режим кулинарной книги */
-const CACHE = "cookbook-v1";
+const CACHE = "cookbook-v2";
 const FILES = [
   "./",
   "./index.html",

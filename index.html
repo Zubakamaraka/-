@@ -111,6 +111,18 @@ main{max-width:46rem; margin:0 auto; padding:1rem .9rem 6rem;}
   display:flex; align-items:center; justify-content:center; font-family:Georgia,serif;
 }
 .notes-p{white-space:pre-wrap; font-size:1.02rem;}
+.rphoto{width:100%; max-height:20rem; object-fit:cover; border-radius:var(--radius); border:2px solid var(--line); margin-bottom:.9rem; display:block;}
+.photo-edit{display:flex; flex-direction:column; gap:.5rem; align-items:flex-start;}
+.photo-edit img{width:100%; max-width:16rem; max-height:14rem; object-fit:cover; border-radius:var(--radius); border:2px solid var(--line);}
+.sheet-bg{position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:60; display:flex; align-items:flex-end; justify-content:center;}
+.sheet{background:var(--card); width:100%; max-width:34rem; border-radius:20px 20px 0 0; padding:1rem 1rem 1.4rem; max-height:85vh; overflow:auto;}
+.sheet h3{font-size:1.2rem; margin-bottom:.2rem;}
+.sheet .sub{color:var(--muted); font-size:.9rem; margin-bottom:1rem;}
+.share-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(6rem,1fr)); gap:.6rem;}
+.share-btn{display:flex; flex-direction:column; align-items:center; gap:.35rem; padding:.7rem .3rem; border:2px solid var(--line); border-radius:var(--radius); background:var(--card); cursor:pointer; font-size:.82rem; font-weight:700; text-align:center; color:var(--ink); text-decoration:none;}
+.share-btn .ic{font-size:1.7rem;}
+.sheet .close{width:100%; min-height:3rem; margin-top:1rem; border:2px solid var(--ink); border-radius:var(--radius); background:var(--card); font-weight:700; cursor:pointer;}
+.dupwarn{background:var(--accent-soft); border:2px solid var(--accent); border-radius:var(--radius); padding:.7rem .9rem; font-size:.95rem; margin-bottom:1rem;}
 .row-actions{display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem;}
 .abtn{min-height:3rem; padding:.4rem 1.1rem; border-radius:var(--radius); border:2px solid var(--ink); background:var(--card); font-weight:700; cursor:pointer;}
 .abtn.acc{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);}
@@ -312,6 +324,7 @@ function recipeHTML(id){
   return `<div class="crumbs"><button class="back" id="backBtn">← Назад</button><span class="tag">${esc(catName(r.cat))}</span></div>
   <article class="recipe">
     <h1>${esc(r.title)}</h1>
+    ${r.photo? `<img class="rphoto" src="${r.photo}" alt="Фото: ${esc(r.title)}">`:""}
     ${r.time? `<p class="note-top">⏱ ${esc(r.time)}</p>`:""}
     ${hasIng? `<section class="panel"><h2>Ингредиенты</h2>
       ${r.servings? `<div class="servings">
@@ -330,18 +343,30 @@ function recipeHTML(id){
       <ol class="steps">${r.steps.map(s=>`<li><span>${esc(s)}</span></li>`).join("")}</ol></section>`:""}
     ${r.notes? `<section class="panel"><h2>Примечания</h2><p class="notes-p">${esc(r.notes)}</p></section>`:""}
     <div class="row-actions">
-      <button class="abtn acc" id="editBtn">✏️ Редактировать</button>
+      <button class="abtn acc" id="shareBtn">📤 Поделиться</button>
+      <button class="abtn" id="editBtn">✏️ Редактировать</button>
       <button class="abtn danger" id="delBtn">Удалить</button>
     </div>
   </article>`;
 }
 
 function editHTML(id, presetCat){
-  const r = id? recipes.find(x=>x.id===id) : null;
+  // r — редактируемый существующий рецепт; inc — входящий по ссылке
+  const inc = (!id && view.incoming) ? incomingRecipe : null;
+  const r = id? recipes.find(x=>x.id===id) : inc;
   const cat = r? r.cat : (presetCat||"raznoe");
-  const ing = r? r.ing : [["","",""]];
+  const ing = (r && r.ing && r.ing.length)? r.ing : [["","",""]];
+  // Проверка на дубль по названию (для входящего рецепта)
+  let dupHtml="";
+  if(inc){
+    const dup=recipes.find(x=>x.title.trim().toLowerCase()===inc.title.trim().toLowerCase());
+    dupHtml = dup
+      ? `<div class="dupwarn">⚠️ Рецепт с названием «${esc(inc.title)}» у вас уже есть. Если сохранить сейчас — добавится второй. Можно изменить название ниже, поправить рецепт, или нажать «Отмена», чтобы ничего не добавлять.</div>`
+      : `<div class="dupwarn">📩 Вам прислали рецепт «${esc(inc.title)}». Проверьте его и нажмите «Сохранить», чтобы добавить в книгу.</div>`;
+  }
   return `<div class="crumbs"><button class="back" id="backBtn">← Отмена</button></div>
-  <h1 style="font-size:1.5rem; margin-bottom:.9rem">${r? "Редактирование":"Новый рецепт"}</h1>
+  <h1 style="font-size:1.5rem; margin-bottom:.9rem">${r? (id?"Редактирование":"Новый рецепт"):"Новый рецепт"}</h1>
+  ${dupHtml}
   <div class="field"><label for="fTitle">Название *</label>
     <input id="fTitle" value="${esc(r?r.title:"")}" placeholder="Например: Пирог с яблоками"></div>
   <div class="field"><label for="fCat">Раздел</label>
@@ -351,6 +376,16 @@ function editHTML(id, presetCat){
     <div class="hint">Если указать порции и граммовки цифрами, приложение сможет пересчитывать количество.</div></div>
   <div class="field"><label for="fTime">Время приготовления</label>
     <input id="fTime" value="${esc(r?r.time:"")}" placeholder="Например: 40 минут"></div>
+  <div class="field"><label>Фото блюда</label>
+    <div class="photo-edit">
+      <img id="fPhotoPrev" src="${r&&r.photo?r.photo:""}" style="${r&&r.photo?"":"display:none"}" alt="Предпросмотр фото">
+      <input type="file" id="fPhotoInput" accept="image/*" hidden>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap">
+        <button type="button" class="abtn" id="fPhotoBtn">🖼 Выбрать фото</button>
+        <button type="button" class="abtn danger" id="fPhotoDel" style="${r&&r.photo?"":"display:none"}">Убрать фото</button>
+      </div>
+      <div class="hint">Фото берётся из галереи телефона и хранится прямо в рецепте.</div>
+    </div></div>
   <div class="field"><label>Ингредиенты</label>
     <div class="hint" style="margin-bottom:.4rem">Название — количество — единица (г, шт, ст. л. …). Количество и единицу можно не указывать.</div>
     <div id="ingList">${ing.map(i=>ingRow(i)).join("")}</div>
@@ -384,6 +419,8 @@ function settingsHTML(){
   <section class="panel"><h2>Восстановить из копии</h2>
     <p style="margin-bottom:.7rem">Загрузите ранее сохранённый файл. Рецепты из файла добавятся к текущим (без дублей).</p>
     <button class="abtn" id="impBtn">⬆️ Загрузить файл копии</button></section>
+  <section class="panel"><h2>Как поделиться одним рецептом</h2>
+    <p>Откройте любой рецепт и нажмите «📤 Поделиться» — выберите мессенджер (Telegram, WhatsApp, ВКонтакте, почта и другие через меню телефона). Получателю придёт текст рецепта и ссылка: нажав на неё, он откроет это же приложение с уже заполненным рецептом и сможет сохранить его себе. Если рецепт с таким названием у него уже есть — приложение предупредит.</p></section>
   <section class="panel"><h2>О приложении</h2>
     <p>Всего рецептов: <b>${recipes.length}</b>. Приложение работает без интернета, все данные хранятся только на этом устройстве.</p></section>`;
 }
@@ -422,6 +459,7 @@ function bind(){
           recipes=recipes.filter(x=>x.id!==r.id); save(recipes); toast("Рецепт удалён"); goBack();
         }
       });
+      b("#shareBtn", ()=>openShare(r));
       b("#servMinus", ()=>{ r._serv=Math.max(1,(r._serv||r.servings)-1); render(); });
       b("#servPlus",  ()=>{ r._serv=(r._serv||r.servings)+1; render(); });
       b("#servReset", ()=>{ delete r._serv; render(); });
@@ -436,6 +474,7 @@ function bind(){
     b("#addIng", ()=>{ $("#ingList").insertAdjacentHTML("beforeend", ingRow()); bindDel(); const rows=$("#ingList").querySelectorAll(".ing-row"); rows[rows.length-1].querySelector("input").focus(); });
     bindDel();
     b("#saveBtn", saveRecipe);
+    bindPhotoEditor();
   }
 
   b("#expBtn", exportData);
@@ -446,6 +485,124 @@ function bindDel(){
     btn.onclick=()=>{ const list=$("#ingList"); if(list.children.length>1) btn.parentElement.remove(); else btn.parentElement.querySelectorAll("input").forEach(i=>i.value=""); };
   });
 }
+/* ---------- Фото: выбор из галереи, сжатие ---------- */
+let editPhoto=null; // текущее фото в редакторе (dataURL) или null
+function bindPhotoEditor(){
+  const r = view.id? recipes.find(x=>x.id===view.id) : null;
+  editPhoto = r && r.photo ? r.photo : null;
+  const inp=$("#fPhotoInput"), prev=$("#fPhotoPrev"), del=$("#fPhotoDel");
+  const btn=$("#fPhotoBtn");
+  if(btn) btn.onclick=()=>inp.click();
+  if(inp) inp.onchange=()=>{
+    const f=inp.files[0]; if(!f) return;
+    shrinkImage(f, 1000, 0.7).then(data=>{
+      editPhoto=data; prev.src=data; prev.style.display=""; del.style.display="";
+    }).catch(()=>toast("Не удалось загрузить фото"));
+    inp.value="";
+  };
+  if(del) del.onclick=()=>{ editPhoto=null; prev.src=""; prev.style.display="none"; del.style.display="none"; };
+}
+// Уменьшает картинку до maxSide px по большей стороне и жмёт в JPEG
+function shrinkImage(file, maxSide, quality){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let {width:w, height:h}=img;
+      if(w>h && w>maxSide){ h=Math.round(h*maxSide/w); w=maxSide; }
+      else if(h>maxSide){ w=Math.round(w*maxSide/h); h=maxSide; }
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      c.getContext("2d").drawImage(img,0,0,w,h);
+      res(c.toDataURL("image/jpeg", quality));
+    };
+    img.onerror=rej;
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+/* ---------- Поделиться рецептом ---------- */
+// Кодирует рецепт (без фото — оно тяжёлое) в компактную ссылку
+function recipeToLink(r){
+  const slim={t:r.title, c:r.cat, s:r.servings||0, tm:r.time||"",
+    i:r.ing||[], st:r.steps||[], n:r.notes||""};
+  const json=JSON.stringify(slim);
+  // UTF-8 → base64, безопасно для кириллицы
+  const b64=btoa(unescape(encodeURIComponent(json)));
+  const base=location.origin+location.pathname;
+  return base+"#recipe="+encodeURIComponent(b64);
+}
+function shareText(r){
+  const lines=[`🍲 ${r.title}`, catName(r.cat)];
+  if(r.time) lines.push("⏱ "+r.time);
+  if(r.ing && r.ing.length){ lines.push("", "Ингредиенты:");
+    r.ing.forEach(i=>lines.push("• "+[i[1],i[2],i[0]].filter(Boolean).join(" "))); }
+  if(r.steps && r.steps.length){ lines.push("", "Приготовление:");
+    r.steps.forEach((s,idx)=>lines.push((idx+1)+". "+s)); }
+  if(r.notes) lines.push("", r.notes);
+  return lines.join("\n");
+}
+function openShare(r){
+  const link=recipeToLink(r);
+  const txt=shareText(r);
+  const full=txt+"\n\n👉 Открыть в приложении:\n"+link;
+
+  // Если телефон умеет системное меню "Поделиться" — используем его (там все мессенджеры)
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  const msgs=[
+    {ic:"📲", nm:"Меню телефона", act:()=>{
+      if(navigator.share){ navigator.share({title:r.title, text:full}).catch(()=>{}); }
+      else { copyText(full); toast("Скопировано — вставьте в мессенджер"); }
+      closeSheet();
+    }},
+    {ic:"💬", nm:"Telegram", act:()=>{ openUrl("https://t.me/share/url?url="+encodeURIComponent(link)+"&text="+encodeURIComponent(txt)); }},
+    {ic:"🟢", nm:"WhatsApp", act:()=>{ openUrl("https://wa.me/?text="+encodeURIComponent(full)); }},
+    {ic:"🔵", nm:"ВКонтакте", act:()=>{ openUrl("https://vk.com/share.php?url="+encodeURIComponent(link)+"&title="+encodeURIComponent(r.title)+"&comment="+encodeURIComponent(txt)); }},
+    {ic:"✉️", nm:"Почта", act:()=>{ openUrl("mailto:?subject="+encodeURIComponent("Рецепт: "+r.title)+"&body="+encodeURIComponent(full)); }},
+    {ic:"📋", nm:"Копировать", act:()=>{ copyText(full); toast("Рецепт скопирован"); closeSheet(); }},
+  ];
+  bg.innerHTML=`<div class="sheet" role="dialog" aria-label="Поделиться рецептом">
+    <h3>📤 Поделиться рецептом</h3>
+    <div class="sub">«${esc(r.title)}» — выберите, куда отправить</div>
+    <div class="share-grid">${msgs.map((m,idx)=>`<button class="share-btn" data-i="${idx}"><span class="ic">${m.ic}</span>${m.nm}</button>`).join("")}</div>
+    <button class="close">Отмена</button>
+  </div>`;
+  bg.onclick=e=>{ if(e.target===bg) closeSheet(); };
+  bg.querySelector(".close").onclick=closeSheet;
+  bg.querySelectorAll(".share-btn").forEach(b=>b.onclick=()=>msgs[+b.dataset.i].act());
+  document.body.appendChild(bg);
+  window._sheet=bg;
+}
+function closeSheet(){ if(window._sheet){ window._sheet.remove(); window._sheet=null; } }
+function openUrl(u){ window.open(u, "_blank"); closeSheet(); }
+function copyText(t){
+  if(navigator.clipboard){ navigator.clipboard.writeText(t).catch(()=>fallbackCopy(t)); }
+  else fallbackCopy(t);
+}
+function fallbackCopy(t){
+  const ta=document.createElement("textarea"); ta.value=t; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); }catch(e){}
+  ta.remove();
+}
+
+/* ---------- Приём рецепта по ссылке ---------- */
+// Если приложение открыли по ссылке вида ...#recipe=... — показываем предзаполненный редактор
+function checkIncomingRecipe(){
+  const m=location.hash.match(/recipe=([^&]+)/);
+  if(!m) return false;
+  try{
+    const json=decodeURIComponent(escape(atob(decodeURIComponent(m[1]))));
+    const s=JSON.parse(json);
+    incomingRecipe={
+      title:String(s.t||"").trim(), cat:s.c||"raznoe", servings:s.s||0,
+      time:s.tm||"", ing:Array.isArray(s.i)?s.i:[], steps:Array.isArray(s.st)?s.st:[], notes:s.n||""
+    };
+    // Чистим хеш, чтобы при обновлении не открывалось снова
+    history.replaceState(null,"",location.pathname);
+    return true;
+  }catch(e){ return false; }
+}
+let incomingRecipe=null;
+
 function saveRecipe(){
   const title=$("#fTitle").value.trim();
   if(!title){ toast("Введите название рецепта"); $("#fTitle").focus(); return; }
@@ -460,15 +617,17 @@ function saveRecipe(){
     ing,
     steps:$("#fSteps").value.split("\n").map(s=>s.trim()).filter(Boolean),
     notes:$("#fNotes").value.trim(),
+    photo: editPhoto || "",
   };
   if(view.id){
     const r=recipes.find(x=>x.id===view.id);
     Object.assign(r, data); delete r._serv;
     save(recipes); toast("Изменения сохранены"); navStack.pop(); go({name:"recipe", id:r.id}, false);
   }else{
-    const r=Object.assign({id:"r"+Date.now(), created:Date.now()}, data);
+    const r=Object.assign({id:"r"+Date.now()+Math.random().toString(16).slice(2), created:Date.now()}, data);
     recipes.push(r); save(recipes); toast("Рецепт добавлен"); go({name:"recipe", id:r.id}, false);
   }
+  editPhoto=null;
 }
 
 /* ================= Импорт / экспорт ================= */
@@ -495,7 +654,7 @@ $("#importFile").addEventListener("change", e=>{
           recipes.push({id:r.id||("r"+Date.now()+Math.random().toString(16).slice(2)), cat:r.cat||"raznoe",
             title:String(r.title), servings:r.servings||0, time:r.time||"",
             ing:Array.isArray(r.ing)?r.ing:[], steps:Array.isArray(r.steps)?r.steps:[],
-            notes:r.notes||"", created:r.created||Date.now()});
+            notes:r.notes||"", photo:r.photo||"", created:r.created||Date.now()});
           added++;
         }
       });
@@ -519,6 +678,11 @@ $("#homeBtn").onclick=()=>{ navStack=[]; go({name:"home"}, false); };
 $("#fab").onclick=()=>go({name:"edit", cat:(view.name==="cat"? view.cat : null)});
 
 applyPrefs();
+
+/* Если открыли по ссылке с рецептом — сразу показываем предзаполненный редактор */
+if(checkIncomingRecipe()){
+  view={name:"edit", incoming:true};
+}
 render();
 
 /* Офлайн-режим (работает только на сайте, не при открытии файла напрямую) */
